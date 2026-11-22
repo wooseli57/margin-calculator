@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>최대비용 마진계산기</title>
+<meta name="description" content="모든 비용을 넣어 진짜 남는 돈과 광고비 한계를 계산하는 마진계산기">
+<meta name="theme-color" content="#1f6f5c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="마진계산기">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* 장부(ledger) 느낌: 입력=주황 셀, 결과=초록 셀 (전자책 엑셀 색 규칙을 그대로), 잉크색 헤더 */
+:root{
+  --ink:#1d2b33; --paper:#f6f7f5; --card:#ffffff; --line:#dde2df; --muted:#66737a;
+  --input:#fff3e6; --input-line:#f0b77a; --output:#e9f6ec; --accent:#1f6f5c;
+  --good:#1f8a4c; --warn:#b7791f; --bad:#c2410c;
+  --display:"IBM Plex Sans KR",system-ui,sans-serif; --body:"IBM Plex Sans KR",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ink:#e7ecea; --paper:#121a1e; --card:#1a252b; --line:#2c3a41; --muted:#9aa8ae;
+  --input:#3a2a19; --input-line:#8a5a2a; --output:#17332a; --accent:#5cc7a6;
+  --good:#4ade80; --warn:#fbbf24; --bad:#fb923c; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --ink:#e7ecea; --paper:#121a1e; --card:#1a252b; --line:#2c3a41; --muted:#9aa8ae;
+  --input:#3a2a19; --input-line:#8a5a2a; --output:#17332a; --accent:#5cc7a6;
+  --good:#4ade80; --warn:#fbbf24; --bad:#fb923c; color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:760px;margin:0 auto;padding:16px 16px 48px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+h1{font-family:var(--display);font-size:1.35rem;margin:0;text-wrap:balance}
+h2{font-size:1rem;margin:0 0 4px}
+.sub{color:var(--muted);font-size:.82rem}
+nav{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;position:sticky;top:0;z-index:5}
+nav button{border:0;background:none;color:var(--muted);font:600 .8rem var(--body);padding:9px 2px;white-space:nowrap;border-radius:7px;cursor:pointer}
+nav button[aria-selected="true"]{background:var(--accent);color:var(--card)}
+section.view{display:none;flex-direction:column;gap:16px}
+section.view.on{display:flex}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{border:0;background:var(--card);color:var(--ink);font:600 .9rem var(--body);padding:10px;cursor:pointer}
+.seg button.on{background:var(--ink);color:var(--card)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+@media (max-width:340px){.grid{grid-template-columns:1fr}}
+label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:var(--muted);font-weight:500}
+label .hint{font-weight:400;font-size:.74rem}
+input,select{font:500 1rem var(--mono);color:var(--ink);background:var(--input);border:1px solid var(--input-line);border-radius:8px;padding:9px 10px;width:100%;min-width:0}
+select,input[type="text"]{font-family:var(--body)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.unit{position:relative}.unit input{padding-right:34px}.unit span{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.8rem;pointer-events:none}
+.hero{background:var(--output);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.big{font:600 1.9rem var(--mono);font-variant-numeric:tabular-nums;line-height:1.1}
+.pill{font-size:.78rem;font-weight:700;padding:4px 10px;border-radius:99px;color:#fff;white-space:nowrap}
+.pill.good{background:var(--good)}.pill.warn{background:var(--warn)}.pill.bad{background:var(--bad)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile b{word-break:keep-all}@media (max-width:340px){.tiles{grid-template-columns:1fr 1fr}}
+.tile{background:var(--card);border-radius:9px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.tile b{font:600 1.05rem var(--mono);font-variant-numeric:tabular-nums}
+.tile small{color:var(--muted);font-size:.72rem}
+.rows{display:flex;flex-direction:column}
+.row{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:.9rem}
+.row:last-child{border-bottom:0}
+.row span:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.row.total{font-weight:700}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--accent);background:var(--accent);color:var(--card);font:600 .9rem var(--body);padding:10px 14px;border-radius:9px;cursor:pointer}
+.btn.ghost{background:none;color:var(--accent)}
+.btn.sm{padding:6px 10px;font-size:.8rem}
+.note{font-size:.8rem;color:var(--muted);margin:0}
+.tag{display:inline-block;font-size:.7rem;font-weight:700;border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:4px;color:var(--muted)}
+.list{display:flex;flex-direction:column;gap:6px}
+.li{display:grid;grid-template-columns:1fr 130px 32px;gap:6px;align-items:center}
+.li button{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:7px;height:36px;cursor:pointer}
+.result-line{display:flex;justify-content:space-between;align-items:baseline;background:var(--output);border-radius:9px;padding:12px}
+.result-line b{font:600 1.4rem var(--mono)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.85rem;font-variant-numeric:tabular-nums}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600;font-size:.75rem}
+tr.hit td{background:var(--output);font-weight:700}
+.neg{color:var(--bad)}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:9px 16px;border-radius:99px;font-size:.85rem;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+.fee-item{padding:9px 0;border-bottom:1px dashed var(--line);display:flex;flex-direction:column;gap:2px}
+.fee-item:last-child{border-bottom:0}
+.fee-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.fee-top b{font-size:.9rem}.fee-top span{font-family:var(--mono);font-weight:600;font-size:.88rem;white-space:nowrap;color:var(--accent)}
+#npayTbl th,#npayTbl td{padding:6px 4px}
+[hidden]{display:none!important}
+.fee-sub{font-size:.76rem;color:var(--muted)}
+.pie-wrap{display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:center}
+@media (max-width:480px){.pie-wrap{grid-template-columns:1fr;justify-items:center}.pie-wrap .rows{width:100%}}
+#pie{width:200px;height:200px}
+#pie path{stroke:var(--card);stroke-width:2;cursor:default}
+#pie path:hover{opacity:.85}
+.lg{display:grid;grid-template-columns:12px 1fr auto auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line);font-size:.85rem}
+.lg:last-child{border-bottom:0}
+.lg i{width:12px;height:12px;border-radius:3px;display:block}
+.lg span:nth-child(3),.lg span:nth-child(4){font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lg span:nth-child(4){color:var(--muted);min-width:46px;text-align:right}
+.card .tile{background:var(--paper)}
+.lg.net{font-weight:700}
+.lg.sub-total{font-weight:700;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--output);padding:6px 4px;margin:2px -4px}
+:root{--c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--c4:#eda100;--c5:#e87ba4;--c6:#008300;--c7:#6250d6;--c8:#e34948;--c9:#8c959a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--c1:#3987e5;--c2:#d95926;--c3:#199e70;--c4:#c98500;--c5:#d55181;--c6:#0ca30c;--c7:#9085e9;--c8:#e66767;--c9:#6b767c}}
+:root[data-theme="dark"]{--c1:#3987e5;--c2:#d95926;--c3:#199e70;--c4:#c98500;--c5:#d55181;--c6:#0ca30c;--c7:#9085e9;--c8:#e66767;--c9:#6b767c}
+.tax-ref{border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
+.tax-ref-vals{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.85rem;color:var(--muted)}
+.tax-ref-vals b{font-family:var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.guide details{border-top:1px solid var(--line);padding:10px 0}
+.guide summary{font-weight:700;cursor:pointer;list-style-position:outside}
+.guide p,.guide li,.guide dd{font-size:.88rem;line-height:1.65;margin:6px 0}
+.guide ol,.guide ul{padding-left:20px;margin:6px 0}
+.guide dl{margin:6px 0}.guide dt{font-weight:700;font-size:.88rem;margin-top:8px}.guide dd{margin:2px 0 0 0;color:var(--muted)}
+.formula{background:var(--output);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:.82rem;line-height:1.7;margin:8px 0}
+.install{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;font-size:.84rem}
+.install[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>최대비용 마진계산기</h1>
+  <span class="sub">2026년 세율 기준 · 1% 생존창업 B2</span>
+</header>
+
+<div class="install" id="installBar" hidden><span id="installText">홈 화면에 설치하면 앱처럼 쓰고 오프라인에서도 계산할 수 있어요.</span><span style="display:flex;gap:6px"><button class="btn sm" id="installBtn">설치</button><button class="btn ghost sm" id="installClose" aria-label="닫기">✕</button></span></div>
+
+<nav role="tablist">
+  <button role="tab" data-tab="margin" aria-selected="true">마진 계산</button>
+  <button role="tab" data-tab="etc" aria-selected="false">기타비용</button>
+  <button role="tab" data-tab="tax" aria-selected="false">세금</button>
+  <button role="tab" data-tab="saved" aria-selected="false">저장·비교</button>
+  <button role="tab" data-tab="guide" aria-selected="false">가이드</button>
+</nav>
+
+<!-- 마진 계산 -->
+<section class="view on" id="v-margin">
+  <div class="card">
+    <div class="seg" id="typeSeg">
+      <button data-type="online" class="on">온라인 쇼핑몰</button>
+      <button data-type="rocket">쿠팡 로켓배송</button>
+    </div>
+    <div class="grid">
+      <label for="name">상품명<input id="name" type="text" value="예시 상품 A"></label>
+      <label for="market">판매처<select id="market"></select></label>
+      <label for="price">판매가 <span class="hint" id="priceHint">소비자가 내는 가격</span><div class="unit"><input id="price" inputmode="numeric" value="20000"><span>원</span></div></label>
+      <label for="buy">매입가 / 제조원가<div class="unit"><input id="buy" inputmode="numeric" value="10000"><span>원</span></div></label>
+      <label for="fee">마켓수수료율 <span class="hint">스마트스토어는 판매수수료+Npay</span><div class="unit"><input id="fee" inputmode="decimal" value="4.95"><span>%</span></div></label>
+      <label for="pack">포장비<div class="unit"><input id="pack" inputmode="numeric" value="200"><span>원</span></div></label>
+      <label for="ad">광고비율 <span class="hint" id="adHint">판매가 대비</span><div class="unit"><input id="ad" inputmode="decimal" value="5"><span>%</span></div></label>
+      <label for="etc">기타비용 비율 <span class="hint">기타비용 탭에서 계산</span><div class="unit"><input id="etc" inputmode="decimal" value="5"><span>%</span></div></label>
+      <label for="tax">소득세율 <span class="hint">세금 탭에서 계산</span><div class="unit"><input id="tax" inputmode="decimal" value="15"><span>%</span></div></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2>비용-이익 구조 <span class="sub" id="pieSub">판매가 기준</span></h2>
+      <div class="seg" id="pieSeg" hidden style="min-width:180px">
+        <button data-base="price" class="on">판매가 기준</button>
+        <button data-base="base">납품가 기준</button>
+      </div>
+    </div>
+    <div class="pie-wrap">
+      <svg id="pie" viewBox="0 0 200 200" role="img" aria-label="비용 구조 원형 차트"></svg>
+      <div class="rows" id="pieLegend"></div>
+    </div>
+    <p class="note" id="pieNote"></p>
+    <p class="note" id="rocketNote" hidden>로켓배송은 납품가(판매가 − 마켓수수료)를 셀러 관점 매출로 계산합니다. 마켓수수료는 납품가에 이미 반영되어 비용 합계에 다시 넣지 않습니다. 광고비·기타비용은 납품가 기준, 최대광고비 비율과 목표 ROAS는 쿠팡 판매가 기준입니다.</p>
+  </div>
+
+
+  <div class="hero" aria-live="polite">
+    <div class="hero-top">
+      <div><div class="sub">세후 순이익 (마진) · 1개당</div><div class="big" id="oNet">0원</div></div>
+      <div style="text-align:right"><div class="sub" id="oRateLbl">세후 순이익률</div><div class="big" id="oRate">0%</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="pill" id="oPill">-</span><button class="btn ghost sm" data-goto="guide">용어·계산 설명 보기</button></div>
+  </div>
+
+  <div class="card">
+    <h2>광고비 한계 <span class="sub">순이익을 모두 광고에 쓸 때</span></h2>
+    <div class="tiles">
+      <div class="tile"><small>최대광고비 <span class="tag">셀러</span></small><b id="oMaxAd">-</b></div>
+      <div class="tile"><small>최대광고비 비율 <span class="tag">셀러</span></small><b id="oMaxAdRate">-</b></div>
+      <div class="tile"><small>최저 목표 ROAS <span class="tag">마켓</span></small><b id="oRoas">-</b></div>
+    </div>
+    <div class="tax-ref">
+      <div class="sub" style="font-weight:600;color:var(--ink)">참고: 세금 효과 반영 시</div>
+      <div class="tax-ref-vals"><span>최대광고비 <b id="tMaxAd">-</b></span><span>비율 <b id="tMaxAdRate">-</b></span><span>최저 ROAS <b id="tRoas">-</b></span></div>
+      <p class="note">광고비가 늘면 이익이 줄어 부가세·소득세도 함께 줄어들므로, 세전 이익 전부를 광고에 쓸 수 있다고 본 값입니다(광고비 세금계산서 발행, 연간 흑자 전제).</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>목표 설계</h2>
+    <p class="note">순이익률 목표를 넣으면 나머지 조건은 그대로 두고 가능한 매입가·판매가 한계를 찾습니다. 0%는 손익분기점입니다.</p>
+    <div class="grid">
+      <label for="target">목표 세후 순이익률<div class="unit"><input id="target" inputmode="decimal" value="0"><span>%</span></div></label>
+      <div></div>
+    </div>
+    <div class="tiles" style="grid-template-columns:1fr 1fr">
+      <div class="tile"><small>목표 최고 매입가 (이하로 사야 함)</small><b id="sBuy">-</b></div>
+      <div class="tile"><small>목표 최저 판매가 (이상 팔아야 함)</small><b id="sPrice">-</b></div>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button class="btn" id="saveBtn">이 상품 저장</button>
+    <button class="btn ghost" id="resetBtn">예시 값으로 되돌리기</button>
+  </div>
+  <div class="card">
+    <h2>2026년 주요 마켓 수수료 <span class="sub">참고자료</span></h2>
+    <div class="rows" id="feeTbl"></div>
+    <h2 style="margin-top:4px">스마트스토어 Npay 수수료 <span class="sub">사업자 연매출 등급별 · 누르면 적용</span></h2>
+    <div class="tbl"><table id="npayTbl"></table></div>
+    <p class="note">요율은 카테고리·프로모션·정책 변경에 따라 달라집니다. 실제 판매 전 각 판매자센터의 수수료표로 확인하세요. 11번가·G마켓 기본값은 최대비용 원칙에 따라 범위의 최댓값(13%)으로 두었습니다. 기준: 2026년 10월 조회 자료.</p>
+  </div>
+</section>
+
+<!-- 기타비용 -->
+<section class="view" id="v-etc">
+  <div class="card">
+    <h2>시설비 <span class="sub">감가상각만 반영</span></h2>
+    <div class="list" id="facList"></div>
+    <div class="btns"><button class="btn ghost sm" data-add="fac">+ 항목 추가</button></div>
+    <div class="grid"><label for="years">내용연수<div class="unit"><input id="years" inputmode="numeric" value="5"><span>년</span></div></label></div>
+  </div>
+  <div class="card">
+    <h2>인건비 <span class="sub">월 기준, 퇴직금 1/12 자동 포함</span></h2>
+    <div class="grid"><label for="salary">월 급여 합계<div class="unit"><input id="salary" inputmode="numeric" value="2500000"><span>원</span></div></label></div>
+  </div>
+  <div class="card">
+    <h2>고정판관비 <span class="sub">월 기준</span></h2>
+    <div class="list" id="fixList"></div>
+    <div class="btns"><button class="btn ghost sm" data-add="fix">+ 항목 추가</button></div>
+    <p class="note">순배송비는 배송비 수입에서 실제 배송비를 뺀 값입니다. 수입이 더 크면 음수로 넣으세요.</p>
+  </div>
+  <div class="card">
+    <label for="revenue">연간 총매출 예상액<div class="unit"><input id="revenue" inputmode="numeric" value="1000000000"><span>원</span></div></label>
+    <div class="rows" id="etcRows"></div>
+    <div class="result-line"><span>기타비용 비율</span><b id="etcRate">-</b></div>
+    <p class="note">매출이 늘면 기타비용 비율이 줄고 마진이 커집니다. 기타비용을 0으로 두고 마진을 보면 매몰비용의 함정에 빠질 수 있습니다.</p>
+    <div class="btns"><button class="btn" id="applyEtc">마진 계산에 적용</button></div>
+  </div>
+</section>
+
+<!-- 세금 -->
+<section class="view" id="v-tax">
+  <div class="card">
+    <div class="seg" id="kindSeg">
+      <button data-kind="personal" class="on">개인사업자 (종합소득세)</button>
+      <button data-kind="corp">법인사업자 (법인세)</button>
+    </div>
+    <label for="taxBase">예상 과세표준 (연간 수익 − 비용)<div class="unit"><input id="taxBase" inputmode="numeric" value="50000000"><span>원</span></div></label>
+    <label style="flex-direction:row;align-items:center;gap:8px;color:var(--ink)"><input id="local" type="checkbox" style="width:auto"> 지방소득세(세액의 10%) 포함</label>
+    <div class="rows" id="taxRows"></div>
+    <div class="result-line"><span>세액 비율 (실효세율)</span><b id="taxRate">-</b></div>
+    <div class="btns"><button class="btn" id="applyTax">마진 계산에 적용</button></div>
+  </div>
+  <div class="card">
+    <h2 id="bracketTitle">세율 구간</h2>
+    <div class="tbl"><table id="bracketTbl"></table></div>
+    <p class="note">세율은 앱 설정값(CONFIG)에 연도별로 분리되어 있어 매년 이 부분만 바꾸면 됩니다.</p>
+  </div>
+</section>
+
+<!-- 저장·비교 -->
+<section class="view" id="v-saved">
+  <div class="card">
+    <h2>저장한 상품 비교</h2>
+    <p class="note">이 브라우저에만 저장됩니다. 행을 누르면 마진 계산으로 불러옵니다.</p>
+    <div class="tbl"><table id="savedTbl"></table></div>
+  </div>
+</section>
+
+<!-- 가이드 -->
+<section class="view" id="v-guide">
+  <div class="card guide">
+    <h2>마진계산기 가이드</h2>
+    <p class="note">값이 무엇을 뜻하는지, 어떻게 계산되는지 정리했습니다. 제목을 누르면 펼쳐집니다.</p>
+
+    <details open><summary>1. 마진이란? (판매가 기준)</summary>
+      <p><b>마진(순이익)</b>은 매출에서 모든 비용을 빼고 남은 이익입니다. 이 계산기는 <b>판매가 기준</b>으로 마진율을 계산합니다.</p>
+      <div class="formula">마진(세후 순이익) = 판매가 − 모든 비용 합계 − 소득세<br>마진율 = 세후 순이익 ÷ 판매가 × 100%</div>
+      <p>예) 매입가 10,000원, 기타 비용 6,000원, 판매가 20,000원이면 이익은 4,000원입니다. 매입원가 기준으로는 40%처럼 보이지만, 판매가 기준으로는 20%입니다. 매입원가 기준은 마진을 크게 착각하게 만들기 때문에, 회계 기준에 맞는 판매가 기준을 씁니다.</p>
+    </details>
+
+    <details><summary>2. 가격마진과 마진의 차이</summary>
+      <p><b>가격마진</b>은 판매가와 매입가의 단순 차이입니다. 흔히 "마진"이라고 부르지만, 다른 비용이 빠지지 않은 값이라 실제 이익보다 훨씬 큽니다.</p>
+      <div class="formula">가격마진 = 판매가 − 매입가<br>가격마진율 = 가격마진 ÷ 판매가 × 100%</div>
+      <p>가격마진이 50%여도 수수료·광고비·세금 등을 빼면 실제 마진은 20%대 이하로 떨어질 수 있습니다. 상품을 고를 때 가격마진만 보면 안 되는 이유입니다.</p>
+    </details>
+
+    <details><summary>3. 왜 "최대비용"인가?</summary>
+      <p>많은 마진 계산기는 매입가와 수수료 정도만 넣고 광고비, 고정비(인건비·임차료 등), 부가세, 소득세를 빠뜨립니다. 그러면 10% 남는다고 계산했는데 실제로는 이익이 없는 일이 생깁니다.</p>
+      <p>이 계산기는 예상 가능한 비용을 <b>최대한 모두</b> 넣어서, 실제보다 낙관적으로 계산되는 것을 막습니다. 결과가 좋게 나오면 그만큼 믿을 수 있고, 나쁘게 나오면 미리 대비할 수 있습니다.</p>
+    </details>
+
+    <details><summary>4. 계산 순서</summary>
+      <ol>
+        <li><b>가변비용</b>: 매입가 + 마켓수수료 + 포장비 + 광고비</li>
+        <li><b>고정비용</b>: 기타비용 (판매가 × 기타비용 비율)</li>
+        <li><b>부가세</b> = (판매가 − 매입가 − 수수료 − 포장비 − 광고비 − 기타비용) ÷ 11</li>
+        <li><b>비용 합계</b> = 가변비용 + 고정비용 + 부가세</li>
+        <li><b>세전 순이익</b> = 판매가 − 비용 합계</li>
+        <li><b>소득세</b> = 세전 순이익 × 소득세율</li>
+        <li><b>세후 순이익</b> = 세전 순이익 − 소득세</li>
+      </ol>
+      <p>사용 순서: ① 판매처와 판매가·매입가 입력 → ② 기타비용 탭에서 비율 계산 후 적용 → ③ 세금 탭에서 세율 계산 후 적용 → ④ 비용-이익 구조와 세후 순이익 확인 → ⑤ 목표 설계로 목표 최고 매입가·목표 최저 판매가 확인.</p>
+    </details>
+
+    <details><summary>5. 항목 정의</summary>
+      <dl>
+        <dt>판매가</dt><dd>소비자가 실제로 내는 상품 1개 가격(부가세 포함).</dd>
+        <dt>매입가 / 제조원가</dt><dd>상품 1개를 사거나 만드는 데 드는 금액(부가세 포함).</dd>
+        <dt>마켓수수료율</dt><dd>판매처가 판매가에서 떼는 비율. 스마트스토어는 판매수수료 + Npay 수수료.</dd>
+        <dt>포장비</dt><dd>상품 1개를 포장하는 데 드는 박스·완충재 등 비용.</dd>
+        <dt>광고비율</dt><dd>매출 대비 광고비 비율. 광고 실적이 불확실하므로 비율로 넣습니다.</dd>
+        <dt>기타비용 비율</dt><dd>시설비(감가상각), 인건비, 임차료·소모품 등 고정비를 연간 예상 매출로 나눈 비율. 매출이 늘면 비율이 줄어 마진이 커집니다.</dd>
+        <dt>부가세</dt><dd>매출부가세 − 매입부가세. 판매가와 각 비용에 포함된 부가세의 차이입니다.</dd>
+        <dt>소득세율</dt><dd>개인은 종합소득세, 법인은 법인세의 실효세율(세액 ÷ 과세표준).</dd>
+        <dt>비용 합계</dt><dd>소득세를 제외한 모든 비용(매입가·수수료·포장비·광고비·기타비용·부가세).</dd>
+        <dt>세전 / 세후 순이익</dt><dd>소득세를 내기 전과 낸 후의 이익. 세후 순이익이 최종 마진입니다.</dd>
+      </dl>
+    </details>
+
+    <details><summary>6. 쿠팡 로켓배송: 셀러 관점과 마켓 관점</summary>
+      <p>로켓배송은 쿠팡이 상품을 사 가는 구조라, 소비자 판매가와 우리 회사가 받는 <b>납품가</b>가 다릅니다.</p>
+      <div class="formula">납품가 = 판매가 × (1 − 마켓수수료율)<br>가격마진 = 납품가 − 매입가</div>
+      <p><b>셀러 관점(납품가 기준)</b>: 우리 매출이므로 가격마진, 광고비, 기타비용, 부가세, 소득세, 순이익률, 최대광고비 비율은 납품가로 계산합니다. 수수료는 납품가에 이미 빠져 있으므로 비용에 다시 넣지 않습니다.</p>
+      <p><b>마켓 관점(판매가 기준)</b>: 쿠팡 광고 화면의 광고수익률(ROAS)은 판매가 기준이므로, 최저 목표 ROAS는 판매가로 계산합니다. 쿠팡에서 ROAS 1,000%가 나와도 수수료 35%를 빼면 우리 입장에서는 650% 수준입니다.</p>
+    </details>
+
+    <details><summary>7. 광고비 지표</summary>
+      <dl>
+        <dt>최대광고비</dt><dd>세후 순이익을 모두 광고에 쓴다고 할 때 쓸 수 있는 광고비. 세후 순이익 + 현재 광고비.</dd>
+        <dt>최대광고비 비율</dt><dd>최대광고비 ÷ 셀러 매출(온라인은 판매가, 로켓배송은 납품가). 세후 순이익률 + 광고비율과 같습니다.</dd>
+        <dt>광고수익률(ROAS)</dt><dd>광고비 대비 매출. 매출 ÷ 광고비 × 100%. 높을수록 좋습니다.</dd>
+        <dt>최저 목표 ROAS</dt><dd>손실 없이 설정할 수 있는 가장 낮은 목표 광고수익률. 판매가 ÷ 최대광고비 × 100%. 낮을수록 광고 운영에 여유가 있습니다.</dd>
+        <dt>세금 효과 반영값</dt><dd>광고비가 늘면 부가세·소득세도 줄어드는 효과를 넣은 참고값. 세전 이익 + 현재 광고비.</dd>
+      </dl>
+    </details>
+
+    <details><summary>8. 목표 설계: 목표 최고 매입가 · 목표 최저 판매가</summary>
+      <p>원하는 <b>목표 세후 순이익률</b>을 넣으면, 나머지 조건(수수료·포장비·광고비율·기타비용·세율)은 그대로 두고 그 목표를 지킬 수 있는 한계를 찾아줍니다. 목표를 0%로 두면 손익분기점입니다.</p>
+      <dl>
+        <dt>목표 최고 매입가</dt><dd>판매가가 정해져 있을 때, 목표 순이익률을 지키려면 이 금액 <b>이하로</b> 사거나 만들어야 하는 최대 매입가(제조원가). 소싱 협상이나 제조원가 목표를 정할 때 씁니다.</dd>
+        <dt>목표 최저 판매가</dt><dd>매입가가 정해져 있을 때, 목표 순이익률을 지키려면 이 금액 <b>이상으로</b> 팔아야 하는 최소 판매가. 가격 책정이나 할인 한도를 정할 때 씁니다.</dd>
+      </dl>
+      <p>예) 판매가 20,000원, 로켓배송 수수료 35% 조건에서 목표 0%의 목표 최고 매입가는 약 11,150원입니다. 판매가가 사실상 정해진 로켓배송에서는 목표 최고 매입가가, 가격을 정할 수 있는 온라인 쇼핑몰에서는 목표 최저 판매가가 특히 유용합니다.</p>
+    </details>
+
+    <details><summary>9. 활용 팁</summary>
+      <ul>
+        <li><b>목표 설계</b>: 목표 순이익률을 0%, 10%, 20%로 바꿔 보며 매입가·판매가가 어떻게 달라지는지 확인하세요. 로켓배송처럼 판매가가 정해진 경우에는 매입가(제조원가) 한계를 찾는 것이 더 중요합니다.</li>
+        <li><b>매몰비용의 함정</b>: 기타비용을 0으로 두고 계산하면 마진이 남는 것처럼 보이지만, 실제 고정비를 넣으면 손실일 수 있습니다. 기타비용을 넣고도 마진이 남는지 확인하세요.</li>
+        <li><b>결과는 가정에 기반</b>합니다. 수수료·광고비·매출 예상이 바뀌면 다시 계산하세요.</li>
+      </ul>
+    </details>
+  </div>
+</section>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+// 최대비용 마진계산기 계산 엔진 (엑셀 B2 수식 기준, 로켓배송 수수료 중복 차감 수정)
+const CONFIG = {
+  year: 2026,
+  // 종합소득세 (만원 단위 구간 상단, 세율)
+  personalTax: [[1400, 6], [5000, 15], [8800, 24], [15000, 35], [30000, 38], [50000, 40], [100000, 42], [Infinity, 45]],
+  // 법인세 2026 (2026.1.1 이후 개시 사업연도)
+  corporateTax: [[20000, 10], [2000000, 20], [30000000, 22], [Infinity, 25]],
+  localTaxRate: 10, // 지방소득세: 세액의 10%
+  // 스마트스토어 2026: 판매수수료(네이버 유입 3%, 광고·마케팅링크 유입 1%) + Npay 수수료(사업자 연매출 등급별)
+  marketPresets: [
+    { name: '스마트스토어 · 네이버 유입 · 영세(3억 이하)', type: 'online', fee: 4.95 },
+    { name: '스마트스토어 · 네이버 유입 · 중소1(3억~5억)', type: 'online', fee: 5.56 },
+    { name: '스마트스토어 · 네이버 유입 · 중소2(5억~10억)', type: 'online', fee: 5.73 },
+    { name: '스마트스토어 · 네이버 유입 · 중소3(10억~30억)', type: 'online', fee: 6.0 },
+    { name: '스마트스토어 · 네이버 유입 · 일반(30억 초과)', type: 'online', fee: 6.63 },
+    { name: '스마트스토어 · 광고·마케팅링크 유입 · 영세', type: 'online', fee: 2.95 },
+    { name: '스마트스토어 · 광고·마케팅링크 유입 · 중소1', type: 'online', fee: 3.56 },
+    { name: '스마트스토어 · 광고·마케팅링크 유입 · 중소2', type: 'online', fee: 3.73 },
+    { name: '스마트스토어 · 광고·마케팅링크 유입 · 중소3', type: 'online', fee: 4.0 },
+    { name: '스마트스토어 · 광고·마케팅링크 유입 · 일반', type: 'online', fee: 4.63 },
+    { name: '쿠팡 윙 · 식품', type: 'online', fee: 10.6 },
+    { name: '쿠팡 윙 · 최대(10.9%)', type: 'online', fee: 10.9 },
+    { name: '11번가 · 최대(13%)', type: 'online', fee: 13 },
+    { name: 'G마켓/옥션 · 최대(13%)', type: 'online', fee: 13 },
+    { name: '자사몰', type: 'online', fee: 3.5 },
+    { name: '쿠팡 로켓배송', type: 'rocket', fee: 35 },
+  ],
+  // 참고자료: 2026년 주요 마켓 수수료 (카테고리·프로모션에 따라 다름, 판매자센터 수수료표로 최종 확인)
+  feeRef: [
+    ['스마트스토어 · 네이버 유입', '판매수수료 3% + Npay 수수료', '4.95 ~ 6.63%', '네이버플러스 스토어·가격비교·재구매·일반 외부 유입'],
+    ['스마트스토어 · 광고·마케팅링크', '판매수수료 1% + Npay 수수료', '2.95 ~ 4.63%', '네이버 광고, 스마트스토어센터 마케팅 링크 유입'],
+    ['브랜드스토어', '판매수수료 4% / 2% + Npay 수수료', '5.95 ~ 7.63%', '스마트스토어보다 판매수수료 1%p 높음'],
+    ['쿠팡 마켓플레이스(윙)', '카테고리별 판매수수료', '4 ~ 10.9%', '식품 10.6%, 별도 결제수수료 없음'],
+    ['쿠팡 로켓그로스', '윙과 같은 판매수수료 + 물류비', '4 ~ 10.9% + 물류비', '입출고비 600원~, 배송비 1,125원~ (사이즈별), 보관 30일 무료'],
+    ['쿠팡 로켓배송', '직매입 (공급률 협상)', '판매가의 약 35 ~ 40%', '납품가 = 판매가 × (1 − 수수료율), 로켓배송 탭에서 계산'],
+    ['11번가', '카테고리별 판매수수료', '약 6 ~ 13%', '할인 전 가격 기준 부과'],
+    ['G마켓·옥션', '카테고리별 판매수수료', '약 6.5 ~ 13%', '할인 전 가격 기준 부과'],
+  ],
+  npay: [['영세', '3억 이하', 1.947], ['중소1', '3억~5억', 2.563], ['중소2', '5억~10억', 2.728], ['중소3', '10억~30억', 3.003], ['일반', '30억 초과', 3.63]],
+};
+
+function calcMargin(x) {
+  // x: {type, price, buy, fee, pack, ad, etc, tax}  (비율은 % 값)
+  const E = +x.price || 0, G = +x.buy || 0, J = (+x.fee || 0) / 100, L = +x.pack || 0;
+  const M = (+x.ad || 0) / 100, O = (+x.etc || 0) / 100, T = (+x.tax || 0) / 100;
+  const rocket = x.type === 'rocket';
+  const base = rocket ? E * (1 - J) : E;        // 셀러 관점 판매가(납품가)
+  const feeAmt = E * J;                           // 마켓수수료(원)
+  const adAmt = base * M, etcAmt = base * O;
+  const pre = base - G - (rocket ? 0 : feeAmt) - L - adAmt - etcAmt;
+  const vat = pre > 0 ? pre / 11 : 0;
+  const cost = G + (rocket ? 0 : feeAmt) + L + adAmt + etcAmt + vat;
+  const ebt = base - cost;
+  const tax = ebt > 0 ? ebt * T : 0;
+  const net = ebt - tax;
+  const maxAd = net + adAmt;
+  return {
+    base, priceMargin: base - G, priceMarginRate: base ? (base - G) / base * 100 : 0,
+    feeAmt, adAmt, etcAmt, vat, cost, ebt, tax, net,
+    netRate: base ? net / base * 100 : 0,
+    maxAd, maxAdRate: base ? maxAd / base * 100 : 0, // 셀러 관점(온라인=판매가, 로켓=납품가) 기준
+    minRoas: maxAd > 0 ? E / maxAd * 100 : null,
+    // 참고: 광고비 증가로 부가세·소득세가 함께 줄어드는 효과 반영 (세전 이익 + 현재 광고비)
+    maxAdTax: pre > 0 ? pre + adAmt : maxAd,
+    maxAdTaxRate: base ? (pre > 0 ? pre + adAmt : maxAd) / base * 100 : 0,
+    minRoasTax: (pre > 0 ? pre + adAmt : maxAd) > 0 ? E / (pre > 0 ? pre + adAmt : maxAd) * 100 : null,
+  };
+}
+
+// 목표 순이익률(%)을 만족하는 최고 매입가 / 최저 판매가 (이분법)
+function solve(x, field, targetRate) {
+  const f = v => calcMargin({ ...x, [field]: v }).netRate - targetRate;
+  let lo = 0, hi = field === 'buy' ? (+x.price || 0) : Math.max(1, (+x.buy || 0) * 20 + 100000);
+  if (field === 'buy') { if (f(lo) < 0) return null; }
+  else { if (f(hi) < 0) return null; }
+  for (let i = 0; i < 80; i++) {
+    const m = (lo + hi) / 2;
+    if (field === 'buy') (f(m) >= 0 ? lo = m : hi = m);
+    else (f(m) >= 0 ? hi = m : lo = m);
+  }
+  return field === 'buy' ? Math.floor(lo) : Math.ceil(hi);
+}
+
+function progressiveTax(baseWon, table) {
+  const b = baseWon / 10000; let prev = 0, t = 0;
+  for (const [top, r] of table) {
+    if (b > prev) t += (Math.min(b, top) - prev) * r / 100;
+    prev = top; if (b <= top) break;
+  }
+  return t * 10000;
+}
+
+function calcTax(baseWon, kind, withLocal) {
+  const table = kind === 'corp' ? CONFIG.corporateTax : CONFIG.personalTax;
+  let tax = progressiveTax(baseWon, table);
+  if (withLocal) tax *= 1 + CONFIG.localTaxRate / 100;
+  return { tax, rate: baseWon > 0 ? tax / baseWon * 100 : 0 };
+}
+
+if (typeof module !== 'undefined') module.exports = { CONFIG, calcMargin, solve, calcTax };
+
+const $ = id => document.getElementById(id);
+const won = v => (v == null || !isFinite(v)) ? '-' : Math.round(v).toLocaleString('ko-KR') + '원';
+const pct = v => (v == null || !isFinite(v)) ? '-' : (Math.round(v * 10) / 10).toLocaleString('ko-KR') + '%';
+const num = id => parseFloat(String($(id).value).replace(/,/g, '')) || 0;
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('mc_' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('mc_' + k, JSON.stringify(v)); } catch (e) {} },
+};
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1600); }
+
+// ---- 탭
+function showTab(name) {
+  document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === name));
+  document.querySelectorAll('section.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + name));
+  if (name === 'saved') renderSaved();
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+document.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { showTab(b.dataset.goto); window.scrollTo({ top: 0 }); });
+
+// ---- 마진 계산
+let type = 'online';
+const FIELDS = ['name', 'price', 'buy', 'fee', 'pack', 'ad', 'etc', 'tax', 'target'];
+const EXAMPLE = { type: 'online', market: '스마트스토어 · 네이버 유입 · 영세(3억 이하)', name: '예시 상품 A', price: 20000, buy: 10000, fee: 4.95, pack: 200, ad: 5, etc: 5, tax: 15, target: 0 };
+
+function fillMarkets() {
+  const sel = $('market'); sel.innerHTML = '';
+  CONFIG.marketPresets.filter(m => m.type === type).forEach(m => {
+    const o = document.createElement('option'); o.value = m.name; o.textContent = `${m.name} (${m.fee}%)`; sel.appendChild(o);
+  });
+  const o = document.createElement('option'); o.value = '직접 입력'; o.textContent = '직접 입력'; sel.appendChild(o);
+}
+$('market').onchange = () => {
+  const p = CONFIG.marketPresets.find(m => m.name === $('market').value);
+  if (p) $('fee').value = p.fee;
+  update();
+};
+function setType(t, keepFee) {
+  type = t;
+  document.querySelectorAll('#typeSeg button').forEach(b => b.classList.toggle('on', b.dataset.type === t));
+  fillMarkets();
+  if (!keepFee) { $('market').selectedIndex = 0; const p = CONFIG.marketPresets.find(m => m.name === $('market').value); if (p) $('fee').value = p.fee; }
+  $('priceHint').textContent = t === 'rocket' ? '쿠팡 판매가 (마켓 관점)' : '소비자가 내는 가격';
+  $('adHint').textContent = t === 'rocket' ? '납품가 대비 (셀러 관점)' : '판매가 대비';
+  $('rocketNote').hidden = t !== 'rocket';
+  update();
+}
+document.querySelectorAll('#typeSeg button').forEach(b => b.onclick = () => setType(b.dataset.type));
+
+function inputs() {
+  return { type, market: $('market').value, name: $('name').value, price: num('price'), buy: num('buy'), fee: num('fee'), pack: num('pack'), ad: num('ad'), etc: num('etc'), tax: num('tax'), target: num('target') };
+}
+function update() {
+  const x = inputs(), r = calcMargin(x), rocket = type === 'rocket';
+  $('oNet').textContent = won(r.net);
+  $('oNet').classList.toggle('neg', r.net < 0);
+  $('oRate').textContent = pct(r.netRate);
+  $('oRate').classList.toggle('neg', r.net < 0);
+  $('oRateLbl').textContent = rocket ? '세후 순이익률 (납품가 기준)' : '세후 순이익률';
+  const pill = $('oPill');
+  if (r.net < 0) { pill.className = 'pill bad'; pill.textContent = '손실'; }
+  else if (r.netRate < 3) { pill.className = 'pill warn'; pill.textContent = '손익분기 근처'; }
+  else { pill.className = 'pill good'; pill.textContent = '흑자'; }
+  $('oMaxAd').textContent = won(r.maxAd);
+  $('oMaxAdRate').textContent = pct(r.maxAdRate);
+  $('oRoas').textContent = r.minRoas == null ? '불가' : pct(r.minRoas);
+  $('tMaxAd').textContent = won(r.maxAdTax);
+  $('tMaxAdRate').textContent = pct(r.maxAdTaxRate);
+  $('tRoas').textContent = r.minRoasTax == null ? '불가' : pct(r.minRoasTax);
+
+  drawPie(x, r);
+  const sb = solve(x, 'buy', x.target), sp = solve(x, 'price', x.target);
+  $('sBuy').textContent = sb == null ? '불가' : won(sb);
+  $('sPrice').textContent = sp == null ? '불가' : won(sp);
+  store.set('current', x);
+}
+FIELDS.forEach(f => $(f).addEventListener('input', update));
+
+function load(x) {
+  FIELDS.forEach(f => { if (x[f] != null) $(f).value = x[f]; });
+  setType(x.type || 'online', true);
+  const opt = [...$('market').options].find(o => o.value === x.market);
+  if (opt) $('market').value = x.market;
+  update();
+}
+$('resetBtn').onclick = () => { load(EXAMPLE); toast('예시 값으로 되돌렸습니다'); };
+$('saveBtn').onclick = () => {
+  const list = store.get('saved', []); const x = inputs();
+  x.id = Date.now(); list.push(x); store.set('saved', list); toast(`"${x.name}" 저장됨`);
+};
+
+// ---- 비용 구조 원형 차트
+let pieBase = 'price';
+document.querySelectorAll('#pieSeg button').forEach(b => b.onclick = () => {
+  pieBase = b.dataset.base; document.querySelectorAll('#pieSeg button').forEach(z => z.classList.toggle('on', z === b)); update();
+});
+function arc(cx, cy, r0, r1, a0, a1) {
+  const p = (r, a) => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const [x0, y0] = p(r1, a0), [x1, y1] = p(r1, a1), [x2, y2] = p(r0, a1), [x3, y3] = p(r0, a0);
+  return `M${x0},${y0} A${r1},${r1} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 ${large} 0 ${x3},${y3} Z`;
+}
+function drawPie(x, r) {
+  const rocket = type === 'rocket';
+  $('pieSeg').hidden = !rocket;
+  const useBase = rocket && pieBase === 'base';
+  const total = useBase ? r.base : x.price;   // 기준 금액
+  const parts = [];
+  if (rocket && !useBase) parts.push(['쿠팡 수수료 (납품가 차감)', r.feeAmt, '--c9']);
+  parts.push(['매입가', x.buy, '--c1']);
+  if (!rocket) parts.push(['마켓수수료', r.feeAmt, '--c2']);
+  parts.push(['포장비', x.pack, '--c3'], ['광고비', r.adAmt, '--c5'], ['기타비용', r.etcAmt, '--c7'], ['부가세', r.vat, '--c4'], ['소득세', r.tax, '--c8']);
+  const loss = r.net < 0;
+  if (!loss) parts.push(['세후 순이익', r.net, '--c6']);
+  const sum = parts.reduce((s, p) => s + Math.max(0, p[1]), 0) || 1;
+  let a = 0, svg = '';
+  parts.forEach(([name, v, c]) => {
+    if (v <= 0) return;
+    const da = v / sum * Math.PI * 2, a1 = a + Math.min(da, Math.PI * 2 - 0.0001);
+    svg += `<path d="${arc(100, 100, 58, 96, a, a1)}" fill="var(${c})"><title>${name}: ${won(v)} (${pct(v / total * 100)})</title></path>`;
+    a += da;
+  });
+  const rate = total ? r.net / total * 100 : 0;
+  svg += `<text x="100" y="92" text-anchor="middle" style="font:500 11px var(--body);fill:var(--muted)">${loss ? '손실' : '순이익률'}</text>`;
+  svg += `<text x="100" y="134" text-anchor="middle" style="font:500 10px var(--body);fill:var(--muted)">${useBase || !rocket ? (rocket ? '납품가 대비' : '판매가 대비') : '판매가 대비'}</text>`;
+  svg += `<text x="100" y="118" text-anchor="middle" style="font:600 24px var(--mono);fill:${loss ? 'var(--bad)' : 'var(--ink)'}">${pct(rate)}</text>`;
+  $('pie').innerHTML = svg;
+  $('pieSub').textContent = (useBase ? '납품가 ' : '판매가 ') + won(total) + ' 기준';
+  const row = ([name, v, c]) => `<div class="lg ${name === '세후 순이익' ? 'net' : ''}"><i style="background:var(${c})"></i><span>${name}</span><span class="${v < 0 ? 'neg' : ''}">${won(v)}</span><span>${pct(total ? v / total * 100 : 0)}</span></div>`;
+  const sub = (name, v, c) => `<div class="lg sub-total"><i style="background:${c ? 'var(' + c + ')' : 'transparent'}"></i><span>${name}</span><span class="${v < 0 ? 'neg' : ''}">${won(v)}</span><span>${pct(total ? v / total * 100 : 0)}</span></div>`;
+  const legend = parts.filter(p => p[0] !== '소득세' && p[0] !== '세후 순이익').map(row);
+  const costSum = r.cost + (rocket && !useBase ? r.feeAmt : 0);
+  legend.push(sub(rocket && !useBase ? '비용 합계 (쿠팡 몫 포함)' : '비용 합계', costSum));
+  legend.push(sub('세전 순이익', r.ebt));
+  legend.push(row(['소득세', r.tax, '--c8']));
+  legend.push(sub('세후 순이익', r.net, '--c6'));
+  $('pieLegend').innerHTML = legend.join('');
+  $('pieNote').textContent = loss ? `비용 합계가 ${useBase || !rocket ? '매출' : '판매가'}보다 ${won(-r.net)} 많아 손실입니다. 원형 차트는 비용 비중만 보여줍니다.`
+    : (rocket ? (useBase ? '우리 회사 매출(납품가) 안에서의 비용 구조입니다.' : '소비자 판매가 전체를 쿠팡 몫과 우리 회사 비용·이익으로 나눈 구조입니다.') : '판매가 전체를 비용과 순이익으로 나눈 구조입니다.');
+}
+
+// ---- 저장·비교
+function renderSaved() {
+  const list = store.get('saved', []);
+  const t = $('savedTbl');
+  if (!list.length) { t.innerHTML = '<tr><td>저장한 상품이 없습니다. 마진 계산 탭에서 "이 상품 저장"을 누르세요.</td></tr>'; return; }
+  t.innerHTML = '<tr><th>상품</th><th>판매처</th><th>판매가</th><th>매입가</th><th>순이익</th><th>순이익률</th><th>최저 ROAS</th><th></th></tr>' +
+    list.map((x, i) => { const r = calcMargin(x); return `<tr data-i="${i}" style="cursor:pointer"><td>${x.name}</td><td>${x.market}</td><td>${won(x.price)}</td><td>${won(x.buy)}</td><td class="${r.net < 0 ? 'neg' : ''}">${won(r.net)}</td><td>${pct(r.netRate)}</td><td>${r.minRoas == null ? '불가' : pct(r.minRoas)}</td><td><button class="btn ghost sm" data-del="${i}">삭제</button></td></tr>`; }).join('');
+  t.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = e => {
+    const list = store.get('saved', []);
+    if (e.target.dataset.del != null) { list.splice(+e.target.dataset.del, 1); store.set('saved', list); renderSaved(); return; }
+    load(list[+tr.dataset.i]); showTab('margin');
+  });
+}
+
+// ---- 기타비용
+const ETC_DEFAULT = {
+  fac: [['회의탁자', 200000], ['책상', 200000], ['의자', 100000], ['사물함', 150000], ['선반', 200000], ['냉장고', 500000], ['컴퓨터', 1500000], ['프린터', 500000], ['기타', 1000000]],
+  fix: [['임차료', 1000000], ['소모품', 100000], ['전기·수도·난방', 200000], ['제세공과금', 100000], ['순배송비', -500000], ['회의비', 100000], ['교통비', 100000], ['이자비용', 100000], ['기타', 100000]],
+};
+let etcData = store.get('etc', null) || { fac: ETC_DEFAULT.fac, fix: ETC_DEFAULT.fix, years: 5, salary: 2500000, revenue: 1000000000 };
+function renderList(key) {
+  const box = $(key + 'List');
+  box.innerHTML = etcData[key].map(([n, v], i) => `<div class="li"><input type="text" id="${key}n${i}" aria-label="항목명" value="${n}"><input id="${key}v${i}" inputmode="numeric" aria-label="금액(원)" value="${v}"><button data-k="${key}" data-i="${i}" aria-label="삭제">✕</button></div>`).join('');
+  box.querySelectorAll('input').forEach(inp => inp.oninput = () => { readLists(); updateEtc(); });
+  box.querySelectorAll('button').forEach(b => b.onclick = () => { etcData[key].splice(+b.dataset.i, 1); renderList(key); updateEtc(); });
+}
+function readLists() {
+  ['fac', 'fix'].forEach(k => etcData[k] = etcData[k].map((_, i) => [$(k + 'n' + i).value, parseFloat($(k + 'v' + i).value.replace(/,/g, '')) || 0]));
+}
+document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { readLists(); etcData[b.dataset.add].push(['새 항목', 0]); renderList(b.dataset.add); updateEtc(); });
+let etcRateVal = 0;
+function updateEtc() {
+  etcData.years = num('years') || 1; etcData.salary = num('salary'); etcData.revenue = num('revenue');
+  const fac = etcData.fac.reduce((s, [, v]) => s + v, 0), dep = fac / etcData.years;
+  const labor = etcData.salary * (1 + 1 / 12) * 12;
+  const fix = etcData.fix.reduce((s, [, v]) => s + v, 0) * 12;
+  const total = dep + labor + fix;
+  etcRateVal = etcData.revenue ? total / etcData.revenue * 100 : 0;
+  $('etcRows').innerHTML = [['시설비 감가상각 (연)', dep], ['인건비 (연, 퇴직금 포함)', labor], ['고정판관비 (연)', fix], ['연간 기타비용 합계', total, 'total']]
+    .map(([k, v, c]) => `<div class="row ${c || ''}"><span>${k}</span><span>${won(v)}</span></div>`).join('');
+  $('etcRate').textContent = pct(etcRateVal);
+  store.set('etc', etcData);
+}
+['years', 'salary', 'revenue'].forEach(id => $(id).addEventListener('input', updateEtc));
+$('applyEtc').onclick = () => { $('etc').value = Math.round(etcRateVal * 100) / 100; update(); showTab('margin'); toast(`기타비용 비율 ${pct(etcRateVal)} 적용`); };
+
+// ---- 세금
+let kind = 'personal', taxRateVal = 0;
+document.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => {
+  kind = b.dataset.kind; document.querySelectorAll('#kindSeg button').forEach(x => x.classList.toggle('on', x === b)); updateTax();
+});
+const manwon = v => v === Infinity ? '' : (v >= 10000 ? (v / 10000).toLocaleString('ko-KR') + '억' : v.toLocaleString('ko-KR') + '만');
+function updateTax() {
+  const base = num('taxBase'), local = $('local').checked;
+  const r = calcTax(base, kind, local); taxRateVal = r.rate;
+  $('taxRows').innerHTML = `<div class="row"><span>${kind === 'corp' ? '법인세' : '종합소득세'}${local ? ' + 지방소득세' : ''}</span><span>${won(r.tax)}</span></div>`;
+  $('taxRate').textContent = pct(r.rate);
+  const table = kind === 'corp' ? CONFIG.corporateTax : CONFIG.personalTax;
+  $('bracketTitle').textContent = `${CONFIG.year}년 ${kind === 'corp' ? '법인세' : '종합소득세'} 세율 구간`;
+  let prev = 0; const b = base / 10000;
+  $('bracketTbl').innerHTML = '<tr><th>과세표준</th><th>세율</th></tr>' + table.map(([top, rate]) => {
+    const hit = b > prev && b <= top || (b === 0 && prev === 0);
+    const lbl = top === Infinity ? `${manwon(prev)}원 초과` : `${prev ? manwon(prev) + '원 초과 ~ ' : ''}${manwon(top)}원 이하`;
+    prev = top; return `<tr class="${hit ? 'hit' : ''}"><td>${lbl}</td><td>${rate}%</td></tr>`;
+  }).join('');
+}
+['taxBase', 'local'].forEach(id => $(id).addEventListener('input', updateTax));
+$('local').addEventListener('change', updateTax);
+$('applyTax').onclick = () => { $('tax').value = Math.round(taxRateVal * 100) / 100; update(); showTab('margin'); toast(`소득세율 ${pct(taxRateVal)} 적용`); };
+
+// ---- 마켓 수수료 참고표
+function renderFeeRef() {
+  $('feeTbl').innerHTML = CONFIG.feeRef.map(r => `<div class="fee-item"><div class="fee-top"><b>${r[0]}</b><span>${r[2]}</span></div><div class="fee-sub">${r[1]} · ${r[3]}</div></div>`).join('');
+  const f = v => (Math.round(v * 100) / 100).toFixed(2);
+  $('npayTbl').innerHTML = '<tr><th>등급 (연매출)</th><th>Npay</th><th>네이버 유입</th><th>광고·링크</th></tr>' +
+    CONFIG.npay.map(([g, rev, p]) => `<tr><td>${g} <span class="sub">${rev}</span></td><td>${p}%</td><td><button class="btn ghost sm" data-fee="${f(3 + p)}">${f(3 + p)}%</button></td><td><button class="btn ghost sm" data-fee="${f(1 + p)}">${f(1 + p)}%</button></td></tr>`).join('');
+  $('npayTbl').querySelectorAll('button').forEach(b => b.onclick = () => {
+    if (type !== 'online') setType('online');
+    $('market').value = '직접 입력'; $('fee').value = b.dataset.fee; update();
+    window.scrollTo({ top: 0, behavior: 'smooth' }); toast(`수수료율 ${b.dataset.fee}% 적용`);
+  });
+}
+renderFeeRef();
+
+// ---- 시작
+$('years').value = etcData.years; $('salary').value = etcData.salary; $('revenue').value = etcData.revenue;
+renderList('fac'); renderList('fix'); updateEtc(); updateTax();
+load((store.get('ver', 0) === 2 ? store.get('current', EXAMPLE) : (store.set('ver', 2), EXAMPLE)));
+
+// ---- PWA: 서비스 워커 등록과 설치 안내
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {})); }
+(function () {
+  const bar = $('installBar'), btn = $('installBtn');
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const dismissed = store.get('installDismissed', false);
+  if (standalone || dismissed) return;
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; bar.hidden = false; });
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios) { $('installText').textContent = '사파리 아래쪽 공유 버튼 → "홈 화면에 추가"를 누르면 앱처럼 설치돼요.'; btn.hidden = true; bar.hidden = false; }
+  btn.onclick = async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice; deferred = null; bar.hidden = true; };
+  $('installClose').onclick = () => { bar.hidden = true; store.set('installDismissed', true); };
+  window.addEventListener('appinstalled', () => { bar.hidden = true; toast('설치되었습니다'); });
+})();
+</script>
+</body></html>
